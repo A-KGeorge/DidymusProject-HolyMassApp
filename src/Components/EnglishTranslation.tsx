@@ -1,36 +1,22 @@
+import type { FC } from "react";
+import { Languages } from "lucide-react";
+import type { Prayer } from "../types/prayers";
 interface EnglishTranslationProps {
-  text: string | undefined;
-  isLoading: boolean;
+  prayer: Prayer;
 }
 
-const EnglishTranslation: React.FC<EnglishTranslationProps> = ({
-  text,
-  isLoading,
-}) => {
-  if (isLoading) {
-    return (
-      <div style={{ marginTop: "10px", color: "#666" }}>
-        <i>Translating...</i>
-      </div>
-    );
-  }
-
-  if (!text) {
-    return null;
-  }
-
+const EnglishTranslation: FC<EnglishTranslationProps> = ({ prayer }) => {
   return (
-    <div
-      style={{
-        marginTop: "10px",
-        padding: "10px",
-        // marginBottom: "10px",
-        backgroundColor: "#f0f7ff",
-        borderRadius: "6px",
-        borderLeft: "3px solid #007bff",
-      }}
-    >
-      <p style={{ margin: 0, fontStyle: "italic", color: "#333" }}>{text}</p>
+    <div className="pt-4 border-t border-purple-100">
+      <div className="flex items-center gap-2 mb-2">
+        <Languages className="w-4 h-4 text-indigo-500" />
+        <span className="text-sm font-medium text-indigo-600">
+          English Translation
+        </span>
+      </div>
+      <p className="text-gray-600 italic leading-relaxed whitespace-pre-wrap">
+        {prayer.englishText}
+      </p>
     </div>
   );
 };

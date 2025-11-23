@@ -1,143 +1,146 @@
+import type { RefObject, FC, Dispatch, SetStateAction } from "react";
+import { Mic, MicOff, Volume2, Languages } from "lucide-react";
+import type { UseMutationResult } from "@tanstack/react-query";
+import type { Prayer } from "../types/prayers";
+
 export type MicStatus = "idle" | "listening" | "waiting";
 
 interface MicControlProps {
-  status: MicStatus;
-  isEnabled: boolean;
+  toggleListening: () => void;
+  isListening: boolean;
+  hasStartedRef: RefObject<boolean>;
   countdown: number;
-  intervalDuration: number;
-  onToggle: () => void;
+  progressPercentage: number;
+  showEnglish: boolean;
+  setShowEnglish: Dispatch<SetStateAction<boolean>>;
+  lastSpokenText: string;
+  translationMutation: UseMutationResult<
+    { prayerId: string; translated: string },
+    any,
+    Prayer,
+    unknown
+  >;
   error: string | null;
 }
 
-const MicControl: React.FC<MicControlProps> = ({
-  status,
-  isEnabled,
+const MicControl: FC<MicControlProps> = ({
+  toggleListening,
+  isListening,
+  hasStartedRef,
   countdown,
-  intervalDuration,
-  onToggle,
+  progressPercentage,
+  showEnglish,
+  setShowEnglish,
+  lastSpokenText,
+  translationMutation,
   error,
 }) => {
-  const getStatusText = () => {
-    if (!isEnabled) return "Microphone Off";
-    switch (status) {
-      case "listening":
-        return "Listening for Malayalam…";
-      case "waiting":
-        return `Next listen in ${countdown}s`;
-      default:
-        return "Ready";
-    }
-  };
-
-  const getStatusColor = () => {
-    if (!isEnabled) return "#666";
-    switch (status) {
-      case "listening":
-        return "#4caf50";
-      case "waiting":
-        return "#ff9800";
-      default:
-        return "#666";
-    }
-  };
-
-  const progressPercent =
-    status === "waiting" && intervalDuration > 0
-      ? ((intervalDuration - countdown) / intervalDuration) * 100
-      : status === "listening"
-      ? 100
-      : 0;
-
   return (
-    <div
-      style={{
-        padding: "15px",
-        backgroundColor: "#1a1a2e",
-        borderRadius: "12px",
-        marginBottom: "15px",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: "12px",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          {/* Mic icon indicator */}
-          <div
-            style={{
-              width: "12px",
-              height: "12px",
-              borderRadius: "50%",
-              backgroundColor: getStatusColor(),
-              boxShadow:
-                status === "listening"
-                  ? `0 0 10px ${getStatusColor()}`
-                  : "none",
-              animation:
-                status === "listening" ? "pulse 1.5s infinite" : "none",
-            }}
-          />
-          <span style={{ color: getStatusColor(), fontWeight: 500 }}>
-            {getStatusText()}
-          </span>
-        </div>
+    <div className="sticky top-6">
+      <div className="bg-white/80 backdrop-blur-lg rounded-2xl shadow-xl p-6 border border-purple-100">
+        <h2 className="text-2xl font-bold bg-linear-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-6">
+          Controls
+        </h2>
 
-        {/* Toggle button */}
+        {/* Mic Control Button */}
         <button
-          onClick={onToggle}
-          style={{
-            padding: "8px 20px",
-            borderRadius: "20px",
-            border: "none",
-            backgroundColor: isEnabled ? "#ef5350" : "#4caf50",
-            color: "white",
-            fontWeight: 600,
-            cursor: "pointer",
-            transition: "all 0.2s ease",
-          }}
+          onClick={toggleListening}
+          className={`w-full flex items-center justify-center gap-2 px-6 py-4 rounded-xl font-medium transition-all transform hover:scale-105 mb-4 ${
+            isListening
+              ? "bg-red-500 text-white shadow-lg shadow-red-200"
+              : hasStartedRef.current
+              ? "bg-yellow-500 text-white shadow-lg shadow-yellow-200"
+              : "bg-linear-to-r from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-200"
+          }`}
         >
-          {isEnabled ? "Stop" : "Start"} Mic
+          {isListening ? (
+            <>
+              <Mic className="w-6 h-6 animate-pulse" />
+              <span className="text-lg">Listening...</span>
+            </>
+          ) : hasStartedRef.current ? (
+            <>
+              <Volume2 className="w-6 h-6" />
+              <span className="text-lg">Waiting...</span>
+            </>
+          ) : (
+            <>
+              <MicOff className="w-6 h-6" />
+              <span className="text-lg">Start Listening</span>
+            </>
+          )}
         </button>
+
+        {/* Countdown Display */}
+        {countdown > 0 && (
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-700">
+                Starting in {countdown}s
+              </span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+              <div
+                className="h-full bg-linear-to-r from-purple-500 to-pink-500 transition-all duration-1000 ease-linear rounded-full"
+                style={{ width: `${progressPercentage}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Language Toggle */}
+        <button
+          onClick={() => setShowEnglish(!showEnglish)}
+          className="w-full flex items-center justify-center gap-2 px-6 py-4 rounded-xl font-medium bg-linear-to-r from-indigo-500 to-purple-500 text-white shadow-lg shadow-indigo-200 transition-all transform hover:scale-105 mb-6"
+        >
+          <Languages className="w-5 h-5" />
+          {showEnglish ? "Hide" : "Show"} English
+        </button>
+
+        {/* Status Info */}
+        <div className="space-y-3 pt-4 border-t border-purple-100">
+          <div className="text-sm font-semibold text-gray-700 mb-2">Status</div>
+
+          {lastSpokenText && (
+            <div className="flex items-start gap-2 text-sm bg-purple-50 p-3 rounded-lg">
+              <Volume2 className="w-4 h-4 text-purple-500 mt-0.5 shrink-0" />
+              <div>
+                <div className="font-medium text-gray-700 mb-1">
+                  Last heard:
+                </div>
+                <div className="text-gray-600 italic">{lastSpokenText}</div>
+              </div>
+            </div>
+          )}
+
+          {translationMutation.isPending && (
+            <div className="flex items-center gap-2 text-sm text-indigo-600 bg-indigo-50 p-3 rounded-lg">
+              <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin shrink-0"></div>
+              <span>Translating prayer...</span>
+            </div>
+          )}
+
+          {/* Loading Progress Bar */}
+          {translationMutation.isPending && (
+            <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+              <div className="h-full bg-linear-to-r from-indigo-500 to-purple-500 animate-pulse rounded-full w-full" />
+            </div>
+          )}
+
+          {error && (
+            <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+              {error}
+            </div>
+          )}
+
+          {!hasStartedRef.current && !error && (
+            <div className="text-sm text-gray-500 italic bg-gray-50 p-3 rounded-lg">
+              Click "Start Listening" to begin. The microphone will activate
+              after 10 seconds.
+            </div>
+          )}
+        </div>
       </div>
-
-      {/* Progress bar */}
-      <div
-        style={{
-          height: "6px",
-          backgroundColor: "#333",
-          borderRadius: "3px",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            height: "100%",
-            width: `${progressPercent}%`,
-            backgroundColor: status === "listening" ? "#4caf50" : "#ff9800",
-            borderRadius: "3px",
-            transition: status === "listening" ? "none" : "width 1s linear",
-          }}
-        />
-      </div>
-
-      {/* Error display */}
-      {error && (
-        <p style={{ color: "#ef5350", marginTop: "10px", marginBottom: 0 }}>
-          {error}
-        </p>
-      )}
-
-      {/* CSS for pulse animation */}
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-      `}</style>
     </div>
   );
 };

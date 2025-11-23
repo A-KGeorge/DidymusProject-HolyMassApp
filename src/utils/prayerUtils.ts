@@ -1,5 +1,8 @@
-import React from "react";
 import type { PrayersType, Prayer } from "../types/prayers";
+import type { Virtualizer } from "@tanstack/react-virtual";
+import type { Dispatch, RefObject, SetStateAction } from "react";
+import type { UseMutationResult } from "@tanstack/react-query";
+import fetchBreaker from "../helpers/fetchBreaker";
 
 /**
  * @brief Helper function to split a long text into chunks not exceeding maxLen, breaking at word boundaries.
@@ -53,35 +56,41 @@ export async function translateMalayalamToEnglish(
   const translatedChunks: string[] = [];
 
   for (const chunk of chunks) {
-    // place in try catch block
-    console.log("🌐 Translating chunk (length):", chunk.length);
-    const url =
-      "https://api.mymemory.translated.net/get?" +
-      "q=" +
-      encodeURIComponent(chunk) +
-      "&langpair=ml|en";
+    try {
+      console.log("🌐 Translating chunk (length):", chunk.length);
+      const url =
+        "https://api.mymemory.translated.net/get?" +
+        "q=" +
+        encodeURIComponent(chunk) +
+        "&langpair=ml|en";
 
-    const response = await fetch(url);
+      const response = await fetchBreaker.fire(url);
 
-    if (!response.ok) {
-      console.error(
-        "❌ Translation HTTP error:",
-        response.status,
-        response.statusText
-      );
-      throw new Error("Translation failed for a chunk: " + response.statusText);
+      if (!response.ok) {
+        console.error(
+          "❌ Translation HTTP error:",
+          response.status,
+          response.statusText
+        );
+        throw new Error(
+          "Translation failed for a chunk: " + response.statusText
+        );
+      }
+
+      const data = await response.json();
+      const translated = data?.responseData?.translatedText;
+
+      console.log("✅ Chunk translated:", translated);
+
+      if (!translated) {
+        throw new Error("No translation returned for a chunk");
+      }
+
+      translatedChunks.push(translated);
+    } catch (error) {
+      console.error("Translation error for chunk:", error);
+      throw error;
     }
-
-    const data = await response.json();
-    const translated = data?.responseData?.translatedText;
-
-    console.log("✅ Chunk translated:", translated);
-
-    if (!translated) {
-      throw new Error("No translation returned for a chunk");
-    }
-
-    translatedChunks.push(translated);
   }
 
   const full = translatedChunks.join(" ");
@@ -121,31 +130,13 @@ export function parsePrayers(data: PrayersType): Prayer[] {
  */
 export function scrollToPrayer(
   prayers: Prayer[],
-  virtualizer: any,
+  virtualizer: Virtualizer<HTMLElement, Element>,
   prayerId: string
 ) {
   const index = prayers.findIndex((p) => p.id === prayerId);
   if (index !== -1) {
     virtualizer.scrollToIndex(index, { align: "start" });
   }
-}
-
-/**
- * @brief Helper function to update prayers state and ref.
- * @param setPrayers The setState function for prayers
- * @param prayersRef The ref to prayers
- * @param updater The updater function
- */
-export function updatePrayers(
-  setPrayers: React.Dispatch<React.SetStateAction<Prayer[]>>,
-  prayersRef: React.MutableRefObject<Prayer[]>,
-  updater: (prev: Prayer[]) => Prayer[]
-) {
-  setPrayers((prev) => {
-    const updated = updater(prev);
-    prayersRef.current = updated;
-    return updated;
-  });
 }
 
 /**
@@ -157,7 +148,8 @@ export function updatePrayers(
 function getNGrams(str: string, n: number): Set<string> {
   const ngrams = new Set<string>();
   const cleaned = str.replace(/\s+/g, " ").trim();
-  for (let i = 0; i <= cleaned.length - n; i++) {
+  const len = cleaned.length - n;
+  for (let i = 0; i <= len; i++) {
     ngrams.add(cleaned.substring(i, i + n));
   }
   return ngrams;
@@ -181,7 +173,7 @@ function jaccardSimilarity(set1: Set<string>, set2: Set<string>): number {
  * @param prayers The array of prayers to match against
  * @returns The best matching Prayer or null if none found
  */
-export function findBestMatchingPrayer(
+function findBestMatchingPrayer(
   transcript: string,
   prayers: Prayer[]
 ): Prayer | null {
@@ -239,3 +231,114 @@ export const calculateSize = (prayer: Prayer) => {
   if (prayer.englishText) size += prayer.englishText.length * 0.6 + 40;
   return Math.max(size, 100);
 };
+
+/**
+ * @brief Helper function to start a countdown timer
+ * @param duration The duration in seconds
+ * @param setCountdown The state setter for countdown
+ * @param countdownIntervalRef The ref for the interval
+ * @param callback The callback to execute when countdown reaches 0
+ */
+export function startCountdown(
+  duration: number,
+  setCountdown: Dispatch<SetStateAction<number>>,
+  countdownIntervalRef: RefObject<number | null>,
+  callback: () => void
+) {
+  setCountdown(duration);
+
+  if (countdownIntervalRef.current) {
+    window.clearInterval(countdownIntervalRef.current);
+  }
+
+  countdownIntervalRef.current = window.setInterval(() => {
+    setCountdown((prev) => {
+      if (prev <= 1) {
+        if (countdownIntervalRef.current) {
+          window.clearInterval(countdownIntervalRef.current);
+        }
+        callback();
+        return 0;
+      }
+      return prev - 1;
+    });
+  }, 1000);
+}
+
+/**
+ * @brief Helper function to handle speech transcript processing
+ * @param transcript The recognized speech transcript
+ * @param prayersRef The ref to prayers array
+ * @param virtualizer The virtualizer instance
+ * @param setActiveId The state setter for active prayer ID
+ * @param setError The state setter for error messages
+ * @param translationMutation The mutation for translation
+ */
+export async function processTranscript(
+  transcript: string,
+  prayersRef: RefObject<Prayer[]>,
+  virtualizer: Virtualizer<HTMLElement, Element>,
+  setActiveId: Dispatch<SetStateAction<string | null>>,
+  setError: Dispatch<SetStateAction<string | null>>,
+  translationMutation: UseMutationResult<
+    {
+      prayerId: string;
+      translated: string;
+    },
+    any,
+    Prayer,
+    unknown
+  >
+) {
+  setError(null);
+  const clean = transcript.trim();
+
+  console.log(
+    "%c🎧 Processing transcript: " + clean,
+    "color: lightblue; font-size: 13px;"
+  );
+
+  if (!clean) {
+    setError("Could not understand speech clearly.");
+    return;
+  }
+
+  const currentPrayers = prayersRef.current;
+  const bestPrayer = findBestMatchingPrayer(clean, currentPrayers);
+
+  if (!bestPrayer) {
+    console.log(
+      "%c❓ No prayer matched for transcript: " + clean,
+      "color: red;"
+    );
+    setError("No matching prayer found for the spoken words.");
+    return;
+  }
+
+  console.log(
+    "%c✅ Matched prayer: " +
+      bestPrayer.id +
+      " (" +
+      (bestPrayer.title || "No Title") +
+      ")",
+    "color: green; font-weight:bold;"
+  );
+
+  setActiveId(bestPrayer.id);
+  scrollToPrayer(prayersRef.current, virtualizer, bestPrayer.id);
+
+  if (!bestPrayer.englishText && !translationMutation.isPending) {
+    console.log(
+      "%c🌐 Translating full paragraph for prayer: " + bestPrayer.id,
+      "color: cyan; font-size: 14px;"
+    );
+
+    try {
+      await translationMutation.mutateAsync(bestPrayer);
+    } catch (err) {
+      console.error("❌ Translation error:", err);
+    }
+  } else {
+    console.log("⏭️ Skipping translation (already translated or loading).");
+  }
+}
